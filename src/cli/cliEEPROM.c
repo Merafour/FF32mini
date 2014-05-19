@@ -41,6 +41,12 @@
 // EEPROM CLI
 ///////////////////////////////////////////////////////////////////////////////
 
+#define LINE_LENGTH 32
+
+#define TIMEOUT 100     // mSec
+
+///////////////////////////////////////
+
 int min(int a, int b)
 {
     return a < b ? a : b;
@@ -61,90 +67,146 @@ int8_t parse_hex(char c)
 
 ///////////////////////////////////////
 
-void cliPrintEEPROM(eepromConfig_t *e)
+void cliPrintSensorEEPROM(void)
 {
-    uint32_t old_crc = e->CRCAtEnd[0];
-    enum { line_length = 32, len = sizeof(eepromConfig_t) };
-    uint8_t *by = (uint8_t*)e;
+    uint32_t old_crc = sensorConfig.CRCAtEnd[0];
+
+    uint8_t *by = (uint8_t*)&sensorConfig;
+
     int i, j;
 
-    e->CRCAtEnd[0] = crc32bEEPROM(e, false);
+    sensorConfig.CRCAtEnd[0] = crc32B((uint32_t*)(&sensorConfig),                  // CRC32B[sensorConfig]
+                                      (uint32_t*)(&sensorConfig.CRCAtEnd));
 
-    if (e->CRCFlags & CRC_HistoryBad)
+    if (sensorConfig.CRCFlags & CRC_HistoryBad)
       evrPush(EVR_ConfigBadHistory, 0);
 
-    for (i = 0; i < ceil((float)len / line_length); i++)
+    for (i = 0; i < ceil((float)sizeof(sensorConfig) / LINE_LENGTH); i++)
     {
-        for (j = 0; j < min(line_length, len - line_length * i); j++)
-            cliPrintF("%02X", by[i * line_length + j]);
+        for (j = 0; j < min(LINE_LENGTH, sizeof(sensorConfig) - LINE_LENGTH * i); j++)
+            cliPortPrintF("%02X", by[i * LINE_LENGTH + j]);
 
-        cliPrint("\n");
+        cliPortPrint("\n");
     }
 
-    e->CRCAtEnd[0] = old_crc;
+    sensorConfig.CRCAtEnd[0] = old_crc;
+}
+
+///////////////////////////////////////
+
+void cliPrintSystemConfig(void)
+{
+    uint32_t old_crc = systemConfig.CRCAtEnd[0];
+
+    uint8_t *by = (uint8_t*)&systemConfig;
+
+    int i, j;
+
+     systemConfig.CRCAtEnd[0] = crc32B((uint32_t*)(&systemConfig),                  // CRC32B[systemConfig]
+                                       (uint32_t*)(&systemConfig.CRCAtEnd));
+
+    if (systemConfig.CRCFlags & CRC_HistoryBad)
+      evrPush(EVR_ConfigBadHistory, 0);
+
+    for (i = 0; i < ceil((float)sizeof(systemConfig) / LINE_LENGTH); i++)
+    {
+        for (j = 0; j < min(LINE_LENGTH, sizeof(systemConfig) - LINE_LENGTH * i); j++)
+            cliPortPrintF("%02X", by[i * LINE_LENGTH + j]);
+
+        cliPortPrint("\n");
+    }
+
+    systemConfig.CRCAtEnd[0] = old_crc;
 }
 
 ///////////////////////////////////////
 
 void eepromCLI()
 {
-    uint8_t  eepromQuery = 'x';
-    uint8_t  validQuery  = false;
+	char c;
+
+	sensorConfig_t sensorRam;
+
+	systemConfig_t systemRam;
+
+	uint8_t  eepromQuery = 'x';
+
+	uint8_t  *p;
+
+	uint8_t  *end;
+
+	uint8_t  secondNibble;
+
+	uint8_t  validQuery  = false;
+
+	uint16_t i;
+
+	uint32_t c1, c2;
+
+    uint32_t size;
+
+	uint32_t time;
+
+	uint32_t charsEncountered;
+
+	///////////////////////////////////////////////////////////////////////////////
 
     cliBusy = true;
 
-    cliPrint("\nEntering EEPROM CLI....\n\n");
+    cliPortPrint("\nEntering EEPROM CLI....\n\n");
 
     while(true)
     {
-        cliPrint("EEPROM CLI -> ");
+        cliPortPrint("EEPROM CLI -> ");
 
-        while ((cliAvailable() == false) && (validQuery == false));
+        while ((cliPortAvailable() == false) && (validQuery == false));
 
         if (validQuery == false)
-            eepromQuery = cliRead();
+            eepromQuery = cliPortRead();
 
-        cliPrint("\n");
+        cliPortPrint("\n");
 
         switch(eepromQuery)
         {
-            // 'a' is the standard "print all the information" character
-            case 'a': // config struct data
-                ;
-                uint32_t c1 = eepromConfig.CRCAtEnd[0],
-                         c2 = crc32bEEPROM(&eepromConfig, false);
+            ///////////////////////////
 
-                cliPrintF("Config structure information:\n");
-                cliPrintF("Version          : %d\n", eepromConfig.version );
-                cliPrintF("Size             : %d\n", sizeof(eepromConfig) );
-                cliPrintF("CRC on last read : %08x\n", c1 );
-                cliPrintF("Current CRC      : %08x\n", c2 );
+            case 'a': // config struct data
+                c1 = sensorConfig.CRCAtEnd[0];
+
+                c2 = crc32B((uint32_t*)(&sensorConfig),                  // CRC32B[sensorConfig]
+                            (uint32_t*)(&sensorConfig.CRCAtEnd));
+
+                cliPortPrintF("Sensor EEPROM structure information:\n");
+                cliPortPrintF("Version          : %d\n", sensorConfig.version);
+                cliPortPrintF("Size             : %d\n", sizeof(sensorConfig));
+                cliPortPrintF("CRC on last read : %08X\n", c1);
+                cliPortPrintF("Current CRC      : %08X\n", c2);
+
                 if ( c1 != c2 )
-                    cliPrintF("  CRCs differ. Current Config has not yet been saved.\n");
-                cliPrintF("CRC Flags :\n");
-                cliPrintF("  History Bad    : %s\n", eepromConfig.CRCFlags & CRC_HistoryBad ? "true" : "false" );
+                    cliPortPrintF("  CRCs differ. Current Sensor Config has not yet been saved.\n");
+
+                cliPortPrintF("CRC Flags :\n");
+                cliPortPrintF("  History Bad    : %s\n", sensorConfig.CRCFlags & CRC_HistoryBad ? "true" : "false" );
+
                 validQuery = false;
                 break;
 
             ///////////////////////////
 
-            case 'c': // Write out to Console in Hex.  (RAM -> console)
+            case 'b': // Write out to Console in Hex.  (RAM -> console)
                 // we assume the flyer is not in the air, so that this is ok;
-                // these change randomly when not in flight and can mistakenly
-                // make one think that the in-memory eeprom struct has changed
-                zeroPIDintegralError();
-                zeroPIDstates();
 
-                cliPrintF("\n");
+                cliPortPrintF("\n");
 
-                cliPrintEEPROM(&eepromConfig);
+                cliPrintSensorEEPROM();
 
-                cliPrintF("\n");
+                cliPortPrintF("\n");
 
-                if (crcCheckVal != crc32bEEPROM(&eepromConfig, true))
+                if (crcCheckVal != crc32B((uint32_t*)(&sensorConfig),       // CRC32B[sensorConfig CRC32B[sensorConfig]]
+                                          (uint32_t*)(&sensorConfig + 1)))
                 {
-                    cliPrint("NOTE: in-memory config CRC invalid; there have probably been changes to\n");
-                    cliPrint("      eepromConfig since the last write to flash/eeprom.\n");
+                    cliPortPrint("NOTE: in-memory sensor config CRC invalid; there have probably been\n");
+                    cliPortPrint("      changes to sensor config since the last write to flash/eeprom.\n");
                 }
 
                 validQuery = false;
@@ -152,166 +214,356 @@ void eepromCLI()
 
             ///////////////////////////
 
-            case 'H': // clear bad history flag
-                cliPrintF("Clearing Bad History flag.\n");
-                eepromConfig.CRCFlags &= ~CRC_HistoryBad;
+            case 'c': // Read Sensor Config -> RAM
+                cliPortPrint("Re-reading Sensor EEPROM.\n");
+                readSensorEEPROM();
+
                 validQuery = false;
                 break;
 
             ///////////////////////////
 
-            case 'C': // Read in from Console in hex.  Console -> RAM
-                ;
-                uint32_t sz = sizeof(eepromConfig);
-                eepromConfig_t e;
-                uint8_t *p = (uint8_t*)&e;
-                uint8_t *end = (uint8_t*)(&e + 1);
-                uint32_t t = millis();
-                enum { Timeout = 100 }; // timeout is in ms
-                int second_nibble = 0; // 0 or 1
-                char c;
-                uint32_t chars_encountered = 0;
+            case 'd': // Read Console -> Sensor RAM
+                charsEncountered = 0;
 
-                cliPrintF("Ready to read in config. Expecting %d (0x%03X) bytes as %d\n",
-                    sz, sz, sz * 2);
-                cliPrintF("hexadecimal characters, optionally separated by [ \\n\\r_].\n");
-                cliPrintF("Times out if no character is received for %dms\n", Timeout);
+                secondNibble = 0;
+
+                size = sizeof(sensorConfig);
+
+                time = millis();
+
+                p = (uint8_t*)&sensorRam;
+
+                end = (uint8_t*)(&sensorRam + 1);
+
+                ///////////////////////
+
+                cliPortPrintF("Ready to read in sensor config. Expecting %d (0x%03X) bytes as %d\n", size, size, size * 2);
+
+                cliPortPrintF("hexadecimal characters, optionally separated by [ \\n\\r_].\n");
+
+                cliPortPrintF("Times out if no character is received for %dms\n", TIMEOUT);
 
                 memset(p, 0, end - p);
 
                 while (p < end)
                 {
-                    while (!cliAvailable() && millis() - t < Timeout) {}
-                    t = millis();
+                    while (!cliPortAvailable() && millis() - time < TIMEOUT) {}
+                    time = millis();
 
-                    c = cliAvailable() ? cliRead() : '\0';
+                    c = cliPortAvailable() ? cliPortRead() : '\0';
+
                     int8_t hex = parse_hex(c);
+
                     int ignore = c == ' ' || c == '\n' || c == '\r' || c == '_' ? true : false;
 
                     if (c != '\0') // assume the person isn't sending null chars
-                        chars_encountered++;
+                        charsEncountered++;
+
                     if (ignore)
                         continue;
+
                     if (hex == -1)
                         break;
 
-                    *p |= second_nibble ? hex : hex << 4;
-                    p += second_nibble;
-                    second_nibble ^= 1;
+                    *p |= secondNibble ? hex : hex << 4;
+
+                    p += secondNibble;
+
+                    secondNibble ^= 1;
                 }
 
                 if (c == 0)
                 {
-                    cliPrintF("Did not receive enough hex chars! (got %d, expected %d)\n",
-                        (p - (uint8_t*)&e) * 2 + second_nibble, sz * 2);
+                    cliPortPrintF("Did not receive enough hex chars! (got %d, expected %d)\n",
+                        (p - (uint8_t*)&sensorRam) * 2 + secondNibble, size * 2);
                 }
-                else if (p < end || second_nibble)
+                else if (p < end || secondNibble)
                 {
-                    cliPrintF("Invalid character found at position %d: '%c' (0x%02x)",
-                        chars_encountered, c, c);
+                    cliPortPrintF("Invalid character found at position %d: '%c' (0x%02x)",
+                        charsEncountered, c, c);
                 }
-                else if (crcCheckVal != crc32bEEPROM(&e, true))
+                else if (crcCheckVal != crc32B((uint32_t*)(&sensorConfig),       // CRC32B[sensorConfig CRC32B[sensorConfig]]
+                                               (uint32_t*)(&sensorConfig + 1)))
                 {
-                    cliPrintF("CRC mismatch! Not writing to in-memory config.\n");
-                    cliPrintF("Here's what was received:\n\n");
-                    cliPrintEEPROM(&e);
+                    cliPortPrintF("CRC mismatch! Not writing to in-memory config.\n");
+                    cliPortPrintF("Here's what was received:\n\n");
+                    cliPrintSensorEEPROM();
                 }
                 else
                 {
-                    // check to see if the newly received eeprom config
+                    // check to see if the newly received sytem config
                     // actually differs from what's in-memory
-                    zeroPIDintegralError();
-                    zeroPIDstates();
 
-                    int i;
-                    for (i = 0; i < sz; i++)
-                        if (((uint8_t*)&e)[i] != ((uint8_t*)&eepromConfig)[i])
+                    for (i = 0; i < size; i++)
+                        if (((uint8_t*)&sensorRam)[i] != ((uint8_t*)&sensorConfig)[i])
                             break;
 
-                    if (i == sz)
+                    if (i == size)
                     {
-                        cliPrintF("NOTE: uploaded config was identical to in-memory config.\n");
+                        cliPortPrintF("NOTE: Uploaded Sensor Config was Identical to RAM Config.\n");
                     }
                     else
                     {
-                        eepromConfig = e;
-                        cliPrintF("In-memory config updated!\n");
-                        cliPrintF("NOTE: config not written to EEPROM; use 'W' to do so.\n");
+                        sensorConfig = sensorRam;
+                        cliPortPrintF("Sensor RAM Config updated!\n");
+                        cliPortPrintF("NOTE: Sensor Config not written to EEPROM; use 'w' to do so.\n");
                     }
 
                 }
 
                 // eat the next 100ms (or whatever Timeout is) of characters,
                 // in case the person pasted too much by mistake or something
-                t = millis();
-                while (millis() - t < Timeout)
-                    if (cliAvailable())
-                        cliRead();
+
+                time = millis();
+
+                while (millis() - time < TIMEOUT)
+                    if (cliPortAvailable())
+                        cliPortRead();
 
                 validQuery = false;
                 break;
 
             ///////////////////////////
 
-            case 'E': // Read in from EEPROM.  (EEPROM -> RAM)
-                cliPrint("Re-reading EEPROM.\n");
-                readEEPROM();
+            case 'h': // Clear Bad Sensor History Flag
+                cliPortPrintF("Clearing Bad Sensor History Flag.\n");
+                sensorConfig.CRCFlags &= ~CRC_HistoryBad;
+                validQuery = false;
+                break;
+
+            ///////////////////////////
+
+            case 'v': // Reset Sensor EEPROM Parameters
+                cliPortPrint( "\nSensor EEPROM Parameters Reset....(not rebooting)\n" );
+                checkSensorEEPROM(true);
+                validQuery = false;
+                break;
+
+            ///////////////////////////
+
+            case 'w': // Write to Sensor EEPROM
+                cliPortPrint("\nWriting Sensor EEPROM Parameters....\n");
+                writeSensorEEPROM();
+
                 validQuery = false;
                 break;
 
             ///////////////////////////
 
             case 'x': // exit EEPROM CLI
-                cliPrint("\nExiting EEPROM CLI....\n\n");
+                cliPortPrint("\nExiting EEPROM CLI....\n\n");
                 cliBusy = false;
                 return;
                 break;
 
             ///////////////////////////
 
-            case 'W':
-            case 'e': // Write out to EEPROM. (RAM -> EEPROM)
-                cliPrint("\nWriting EEPROM Parameters....\n\n");
-                writeEEPROM();
-                break;
+            case 'A': // config struct data
+                c1 = systemConfig.CRCAtEnd[0];
 
-            ///////////////////////////
+                zeroPIDintegralError();
+                zeroPIDstates();
 
-            case 'f': // Write out to sdCard FILE. (RAM -> FILE)
+                c2 = crc32B((uint32_t*)(&systemConfig),                  // CRC32B[systemConfig]
+                            (uint32_t*)(&systemConfig.CRCAtEnd));
+
+                cliPortPrintF("System EEPROM structure information:\n");
+                cliPortPrintF("Version          : %d\n", systemConfig.version);
+                cliPortPrintF("Size             : %d\n", sizeof(systemConfig));
+                cliPortPrintF("CRC on last read : %08X\n", c1);
+                cliPortPrintF("Current CRC      : %08X\n", c2);
+
+                if ( c1 != c2 )
+                    cliPortPrintF("  CRCs differ. Current SystemConfig has not yet been saved.\n");
+
+                cliPortPrintF("CRC Flags :\n");
+                cliPortPrintF("  History Bad    : %s\n", systemConfig.CRCFlags & CRC_HistoryBad ? "true" : "false" );
+
                 validQuery = false;
                 break;
 
             ///////////////////////////
 
-            case 'F': // Read in from sdCard FILE. (FILE -> RAM)
+            case 'B': // Write out to Console in Hex.  (RAM -> console)
+                // we assume the flyer is not in the air, so that this is ok;
+
+                // these change randomly when not in flight and can mistakenly
+                // make one think that the in-memory eeprom struct has changed
+                zeroPIDintegralError();
+                zeroPIDstates();
+
+                cliPortPrintF("\n");
+
+                cliPrintSystemConfig();
+
+                cliPortPrintF("\n");
+
+                if (crcCheckVal != crc32B((uint32_t*)(&systemConfig),       // CRC32B[systemConfig CRC32B[systemConfig]]
+                                          (uint32_t*)(&systemConfig + 1)))
+                {
+                    cliPortPrint("NOTE: in-memory system config CRC invalid; there have probably been\n");
+                    cliPortPrint("      changes to system config since the last write to flash/eeprom.\n");
+                }
+
                 validQuery = false;
                 break;
 
             ///////////////////////////
 
-            case 'V': // Reset EEPROM Parameters
-                cliPrint( "\nEEPROM Parameters Reset....(not rebooting)\n" );
-                checkFirstTime(true);
-                validQuery = false;
-            break;
+            case 'C': // Read System Config -> RAM
+                cliPortPrint("Re-reading System EEPROM.\n");
+                readSystemEEPROM();
 
+                validQuery = false;
+                break;
+
+            ///////////////////////////
+
+            case 'D': // Read Console -> System RAM
+            	charsEncountered = 0;
+
+            	secondNibble = 0;
+
+            	size = sizeof(systemConfig);
+
+                time = millis();
+
+                p = (uint8_t*)&systemRam;
+
+                end = (uint8_t*)(&systemRam + 1);
+
+                ///////////////////////
+
+                cliPortPrintF("Ready to read in system config. Expecting %d (0x%03X) bytes as %d\n", size, size, size * 2);
+
+                cliPortPrintF("hexadecimal characters, optionally separated by [ \\n\\r_].\n");
+
+                cliPortPrintF("Times out if no character is received for %dms\n", TIMEOUT);
+
+                memset(p, 0, end - p);
+
+                while (p < end)
+                {
+                    while (!cliPortAvailable() && millis() - time < TIMEOUT) {}
+                    time = millis();
+
+                    c = cliPortAvailable() ? cliPortRead() : '\0';
+
+                    int8_t hex = parse_hex(c);
+
+                    int ignore = c == ' ' || c == '\n' || c == '\r' || c == '_' ? true : false;
+
+                    if (c != '\0') // assume the person isn't sending null chars
+                        charsEncountered++;
+
+                    if (ignore)
+                        continue;
+
+                    if (hex == -1)
+                        break;
+
+                    *p |= secondNibble ? hex : hex << 4;
+
+                    p += secondNibble;
+
+                    secondNibble ^= 1;
+                }
+
+                if (c == 0)
+                {
+                    cliPortPrintF("Did not receive enough hex chars! (got %d, expected %d)\n",
+                        (p - (uint8_t*)&systemRam) * 2 + secondNibble, size * 2);
+                }
+                else if (p < end || secondNibble)
+                {
+                    cliPortPrintF("Invalid character found at position %d: '%c' (0x%02x)",
+                        charsEncountered, c, c);
+                }
+                else if (crcCheckVal != crc32B((uint32_t*)(&systemConfig),       // CRC32B[systemConfig CRC32B[systemConfig]]
+                                               (uint32_t*)(&systemConfig + 1)))
+                {
+                    cliPortPrintF("CRC mismatch! Not writing to in-memory config.\n");
+                    cliPortPrintF("Here's what was received:\n\n");
+                    cliPrintSystemConfig();
+                }
+                else
+                {
+                    // check to see if the newly received sytem config
+                    // actually differs from what's in-memory
+                    zeroPIDintegralError();
+                    zeroPIDstates();
+
+                    for (i = 0; i < size; i++)
+                        if (((uint8_t*)&systemRam)[i] != ((uint8_t*)&systemConfig)[i])
+                            break;
+
+                    if (i == size)
+                    {
+                        cliPortPrintF("NOTE: Uploaded System Config was Identical to RAM Config.\n");
+                    }
+                    else
+                    {
+                        systemConfig = systemRam;
+                        cliPortPrintF("System RAM Config updated!\n");
+                        cliPortPrintF("NOTE: System Config not written to EEPROM; use 'W' to do so.\n");
+                    }
+
+                }
+
+                // eat the next 100ms (or whatever Timeout is) of characters,
+                // in case the person pasted too much by mistake or something
+
+                time = millis();
+
+                while (millis() - time < TIMEOUT)
+                    if (cliPortAvailable())
+                        cliPortRead();
+
+                validQuery = false;
+                break;
+
+            ///////////////////////////
+
+            case 'H': // Clear Bad System History Flag
+                cliPortPrintF("Clearing Bad System History Flag.\n");
+                systemConfig.CRCFlags &= ~CRC_HistoryBad;
+                validQuery = false;
+                break;
+
+            ///////////////////////////
+
+            case 'V': // Reset System EEPROM Parameters
+                cliPortPrint( "\nSystem EEPROM Parameters Reset....(not rebooting)\n" );
+                checkSystemEEPROM(true);
+
+                validQuery = false;
+                break;
+
+            ///////////////////////////
+
+            case 'W': // Write out to System EEPROM
+                cliPortPrint("\nWriting System EEPROM Parameters....\n");
+                writeSystemEEPROM();
+
+                validQuery = false;
+                break;
 
             ///////////////////////////
 
             case '?':
             //                0         1         2         3         4         5         6         7
             //                01234567890123456789012345678901234567890123456789012345678901234567890123456789
-                cliPrintF("\n");
-                cliPrintF("'a' Display in-RAM config information\n");
-                cliPrintF("'c' Write in-RAM -> Console (as Hex)      'C' Read Console (as Hex) -> in-RAM\n");
-                cliPrintF("'e' Write in-RAM -> EEPROM                'E' Read EEPROM -> in-RAM\n");
-                cliPrintF("'f' Write in-RAM -> sd FILE (Not yet imp) 'F' Read sd FILE -> in-RAM (Not imp)\n");
-                cliPrintF("                                          'H' Clear CRC Bad History flag\n");
-                cliPrintF("                                          'V' Reset in-RAM config to default.\n");
-                cliPrintF("'x' Exit EEPROM CLI                       '?' Command Summary\n");
-                cliPrintF("\n");
-                cliPrintF("For compatability:                        'W' Write in-RAM -> EEPROM\n");
-                cliPrintF("\n");
+                cliPortPrintF("\n");
+                cliPortPrintF("'a' Display Sensor Config Information     'A' Display System Config Information\n");
+                cliPortPrintF("'b' Write Sensor Config -> Console        'B' Write System Config - > Console\n");
+                cliPortPrintF("'c' Read Sensor Config -> RAM             'C' Read System Config -> RAM\n");
+                cliPortPrintF("'d' Read Console -> Sensor RAM            'D' Read Console -> System RAM\n");
+                cliPortPrintF("'h' Clear System CRC Bad History flag     'H' Clear System CRC Bad History flag\n");
+                cliPortPrintF("'v' Reset Sensor Config to Default        'V' Reset System Config to Default\n");
+                cliPortPrintF("'w' Write Sensor Config -> EEPROM         'W' Write System Config -> EEPROM\n");
+                cliPortPrintF("'x' Exit EEPROM CLI                       '?' Command Summary\n");
+                cliPortPrintF("\n");
                 break;
 
             ///////////////////////////
